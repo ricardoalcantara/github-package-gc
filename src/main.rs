@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
-use reqwest::header::{HeaderMap, InvalidHeaderValue};
+use error::{AppError, AppResult};
+use reqwest::header::HeaderMap;
 use std::{path::PathBuf, str::FromStr};
-use thiserror::Error;
+
+mod error;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -29,24 +31,8 @@ enum Commands {
     GC { skip: Option<usize> },
 }
 
-#[derive(Error, Debug)]
-pub enum AppError {
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
-    #[error(transparent)]
-    Dotenvy(#[from] dotenvy::Error),
-    #[error(transparent)]
-    ParseError(#[from] chrono::format::ParseError),
-    #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
-    #[error(transparent)]
-    InvalidHeaderValue(#[from] InvalidHeaderValue),
-    #[error("Invalid Github ID {0}")]
-    InvalidId(String),
-}
-
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> AppResult {
     let cli = Cli::parse();
 
     if let Some(config) = cli.config.as_deref() {
