@@ -31,8 +31,6 @@ pub enum AppError {
         error: InvalidHeaderValue,
         location: &'static Location<'static>,
     },
-    #[error("Invalid Github ID {0}")]
-    InvalidId(String),
 }
 
 impl From<reqwest::Error> for AppError {

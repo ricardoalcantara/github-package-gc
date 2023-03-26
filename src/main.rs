@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand};
 use error::{AppError, AppResult};
+use packages::Packages;
 use reqwest::header::HeaderMap;
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 mod error;
+mod packages;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -26,6 +28,8 @@ enum Commands {
     List {
         #[arg(short, long, default_value_t = false)]
         raw: bool,
+        #[arg(short, long, default_value_t = false)]
+        debug: bool,
     },
     /// Run Garbage Collector
     GC { skip: Option<usize> },
@@ -46,32 +50,38 @@ async fn main() -> AppResult {
     for package_name in cli.package_names {
         println!("Package: {package_name}");
         // https://api.github.com/user/packages/PACKAGE_TYPE/PACKAGE_NAME/versions
-        let json: serde_json::Value = get(&format!(
+        let json = get(&format!(
             "https://api.github.com/user/packages/{package_type}/{package_name}/versions"
         ))
         .await?;
 
-        let serde_json::Value::Array(result) = &json else {
-            return Ok(())
-        };
+        let packages: Packages = serde_json::from_str(&json)?;
 
         match &cli.command {
-            Some(Commands::List { raw }) => {
+            Some(Commands::List { raw, debug }) => {
                 println!("Printing lists...");
-                for item in result {
-                    let serde_json::Value::String(created_at) = &item["created_at"] else {
-                        return Ok(())
-                    };
 
+                if *debug {
+                    println!("{}", json);
+                }
+
+                for package in packages {
                     if *raw {
-                        println!("{:#?}", item)
+                        println!("{:#?}", package)
                     } else {
-                        let created_at: chrono::DateTime<chrono::Utc> =
-                            chrono::DateTime::from_str(created_at)?;
-
                         println!(
                             "{} {}",
-                            created_at, &item["metadata"]["container"]["tags"][0]
+                            package.created_at,
+                            package
+                                .metadata
+                                .container
+                                .tags
+                                .first()
+                                .map(String::as_str)
+                                .unwrap_or_else(|| {
+                                    eprintln!("Tag Not Found");
+                                    "<Unkown>"
+                                })
                         )
                     }
                 }
@@ -80,26 +90,27 @@ async fn main() -> AppResult {
                 let skip = if let Some(skip) = *skip { skip } else { 4 };
                 println!("Running GC...");
 
-                for item in result.iter().skip(skip) {
-                    let serde_json::Value::Object(item) = item else {
-                        return Ok(())
-                    };
-
-                    let serde_json::Value::Number(id) = &item["id"] else {
-                        return Ok(())
-                    };
-
-                    let id = id
-                        .as_i64()
-                        .ok_or(AppError::InvalidId(serde_json::to_string_pretty(&json)?))?;
+                for package in packages.iter().skip(skip) {
+                    let id = package.id;
 
                     println!(
                         "Deleting: {}; tag:{}",
-                        id, &item["metadata"]["container"]["tags"][0]
+                        id,
+                        package
+                            .metadata
+                            .container
+                            .tags
+                            .first()
+                            .map(String::as_str)
+                            .unwrap_or_else(|| {
+                                eprintln!("Tag Not Found");
+                                "<Unkown>"
+                            })
                     );
 
                     delete(&format!(
-                        "https://api.github.com/user/packages/{package_type}/{package_name}/versions/{id}"
+                        "https://api.github.com/user/packages/{}/{}/versions/{}",
+                        package_type, package_name, package.id
                     ))
                     .await?;
                 }
@@ -111,19 +122,14 @@ async fn main() -> AppResult {
     Ok(())
 }
 
-async fn get<T>(url: &str) -> Result<T, AppError>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let t = reqwest::Client::new()
+async fn get(url: &str) -> Result<String, AppError> {
+    Ok(reqwest::Client::new()
         .get(url)
         .headers(get_headers()?)
         .send()
         .await?
-        .json()
-        .await?;
-
-    Ok(t)
+        .text()
+        .await?)
 }
 
 async fn delete(url: &str) -> Result<(), AppError> {
