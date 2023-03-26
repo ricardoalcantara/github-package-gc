@@ -44,6 +44,7 @@ async fn main() -> AppResult {
     let package_type = "container";
 
     for package_name in cli.package_names {
+        println!("Package: {package_name}");
         // https://api.github.com/user/packages/PACKAGE_TYPE/PACKAGE_NAME/versions
         let json: serde_json::Value = get(&format!(
             "https://api.github.com/user/packages/{package_type}/{package_name}/versions"
@@ -68,7 +69,10 @@ async fn main() -> AppResult {
                         let created_at: chrono::DateTime<chrono::Utc> =
                             chrono::DateTime::from_str(created_at)?;
 
-                        println!("{}", created_at)
+                        println!(
+                            "{} {}",
+                            created_at, &item["metadata"]["container"]["tags"][0]
+                        )
                     }
                 }
             }
@@ -89,7 +93,10 @@ async fn main() -> AppResult {
                         .as_i64()
                         .ok_or(AppError::InvalidId(serde_json::to_string_pretty(&json)?))?;
 
-                    println!("Deleting: {}", id);
+                    println!(
+                        "Deleting: {}; tag:{}",
+                        id, &item["metadata"]["container"]["tags"][0]
+                    );
 
                     delete(&format!(
                         "https://api.github.com/user/packages/{package_type}/{package_name}/versions/{id}"
